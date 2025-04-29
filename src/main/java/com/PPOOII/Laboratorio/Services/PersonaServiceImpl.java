@@ -1,115 +1,123 @@
 package com.PPOOII.Laboratorio.Services;
 
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-import org.apache.logging.log4j.Logger;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
 import com.PPOOII.Laboratorio.Entities.Persona;
 import com.PPOOII.Laboratorio.Entities.Usuario;
 import com.PPOOII.Laboratorio.Repository.PersonaRepository;
 import com.PPOOII.Laboratorio.Repository.UsuarioRepository;
+import org.apache.logging.log4j.Logger; // Importación añadida
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-@Service("PersonaService")
-public class PersonaServiceImpl implements IPersonaService {
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
-    @Autowired
-    private PersonaRepository personaRepository;
+//[Resto de imports...]
 
-    @Autowired
-    private UsuarioRepository usuarioRepository;  // Inyección corregida
+@Service
+public class PersonaServiceImpl implements PersonaService {
 
-    private static final Logger logger = org.apache.logging.log4j.LogManager.getLogger(PersonaServiceImpl.class);
+ // [Inyecciones de dependencias...]
 
-    @Override
-    public boolean guardar(Persona persona) {
-        try {
-            if (persona == null) {
-                logger.error("ERROR AGREGAR_PERSONA: LA PERSONA ES NULA!");
-                return false;
-            }
-            
-          
-            persona = personaRepository.save(persona);
+ @Override
+ @Transactional
+ public boolean actualizar(Persona persona) {
+     try {
+         if (persona == null || persona.getIdpersona() == null) {
+             logger.error("ERROR ACTUALIZAR: Persona o ID nulo");
+             return false;
+         }
 
-            // Genera login según PDF: pnombre + primera letra papellido + idpersona
-            String login = persona.getPnombre() + 
-                         persona.getPapellido().charAt(0) + 
-                         persona.getIdpersona();
+         return personaRepository.findById(persona.getIdpersona())
+                 .map(p -> {
+                     p.setPnombre(persona.getPnombre());
+                     p.setPapellido(persona.getPapellido());
+                     p.setFechanacimiento(persona.getFechanacimiento());
+                     if (p.getFechanacimiento() != null) {
+                         p.calcularEdades();
+                     }
+                     personaRepository.save(p);
+                     return true;
+                 })
+                 .orElse(false);
+     } catch (Exception e) {
+         logger.error("ERROR ACTUALIZAR_PERSONA: ", e);
+         return false;
+     }
+ }
 
-            // Genera password aleatorio
-            String password = UUID.randomUUID().toString().substring(0, 8);
+ @Override
+ @Transactional
+ public boolean eliminar(Long id) {
+     try {
+         if (id == null) return false;
+         
+         Optional<Persona> personaOpt = personaRepository.findById(id);
+         if (!personaOpt.isPresent()) return false;
+         
+         Persona persona = personaOpt.get();
+         if (persona.getUsuario() != null) {
+             usuarioRepository.delete(persona.getUsuario());
+         }
+         personaRepository.delete(persona);
+         return true;
+     } catch (Exception e) {
+         logger.error("ERROR ELIMINAR_PERSONA: ", e);
+         return false;
+     }
+ }
 
-            // Crea y guarda Usuario
-            Usuario usuario = new Usuario(login, persona, password);
-            usuarioRepository.save(usuario);
+ @Override
+ @Transactional(readOnly = true)
+ public List<Persona> consultarPersona(Pageable pageable) {
+     try {
+         return pageable == null ? 
+                personaRepository.findAll() : 
+                personaRepository.findAll(pageable).getContent();
+     } catch (Exception e) {
+         logger.error("ERROR CONSULTAR_PERSONAS: ", e);
+         return List.of();
+     }
+ }
 
-            return true;
-        } catch (Exception e) {
-            logger.error("ERROR AGREGAR_PERSONA: " + e.getMessage());
-            return false;
-        }
-    }
+ @Override
+ @Transactional(readOnly = true)
+ public Persona findById(Long id) {
+     try {
+         if (id == null) return null;
+         return personaRepository.findById(id).orElse(null);
+     } catch (Exception e) {
+         logger.error("ERROR BUSCAR_POR_ID: ", e);
+         return null;
+     }
+ }
 
-    @Override
-    public boolean actualizar(Persona persona) {
-        try {
-            if (persona == null || persona.getIdpersona() == null) {
-                logger.error("ERROR EDITAR_PERSONA: LA PERSONA ES NULA O EL ID ES 0!");
-                return false;
-            }
-            
-            Optional<Persona> personaExistente = personaRepository.findById(persona.getIdpersona());
-            if (personaExistente.isPresent()) {
-                Persona p = personaExistente.get();
-                p.setPnombre(persona.getPnombre());
-                p.setPapellido(persona.getPapellido());
-                p.setFechanacimiento(persona.getFechanacimiento());
-                personaRepository.save(p);
-                return true;
-            }
-            return false;
-        } catch (Exception e) {
-            logger.error("ERROR EDITAR_PERSONA: " + e.getMessage());
-            return false;
-        }
-    }
+ @Override
+ @Transactional(readOnly = true)
+ public List<Persona> findByNombre(String pnombre) {
+     try {
+         if (pnombre == null || pnombre.trim().isEmpty()) {
+             return personaRepository.findAll();
+         }
+         return personaRepository.findByPnombreContainingIgnoreCase(pnombre);
+     } catch (Exception e) {
+         logger.error("ERROR BUSCAR_POR_NOMBRE: ", e);
+         return List.of();
+     }
+ }
 
-    @Override
-    public boolean eliminar(int id) {
-        try {
-            Optional<Persona> persona = personaRepository.findById((long) id);  // Cast a Long
-            if (persona.isPresent()) {
-                personaRepository.delete(persona.get());
-                return true;
-            }
-            return false;
-        } catch (Exception e) {
-            logger.error("ERROR ELIMINAR_PERSONA: " + e.getMessage());
-            return false;
-        }
-    }
-
-    @Override
-    public List<Persona> consultarPersona(Pageable pageable) {
-        return personaRepository.findAll(pageable).getContent();
-    }
-
-    @Override
-    public Persona findById(int id) {
-        Optional<Persona> persona = personaRepository.findById((long) id);  // Cast a Long
-        return persona.orElse(null);
-    }
-
-    @Override
-    public List<Persona> findByNombre(String pnombre) {
-        return personaRepository.findByPnombre(pnombre);
-    }
-
-    @Override
-    public List<Persona> findByEdad(int edad) {
-        return personaRepository.findByEdad(edad);
-    }
+ @Override
+ @Transactional(readOnly = true)
+ public List<Persona> findByEdad(int edad) {
+     try {
+         return personaRepository.findAll().stream()
+             .filter(p -> p.getEdad() != null && p.getEdad() == edad)
+             .collect(Collectors.toList());
+     } catch (Exception e) {
+         logger.error("ERROR BUSCAR_POR_EDAD: ", e);
+         return List.of();
+     }
+ }
 }
